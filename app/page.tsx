@@ -1,4 +1,4 @@
-import TopicForm from "./TopicForm";
+import JokeGenerator from "./JokeGenerator";
 import styles from "./page.module.css";
 
 export default function Home() {
@@ -8,7 +8,7 @@ export default function Home() {
         <h1 className={styles.title}>מחולל בדיחות</h1>
         <p className={styles.subtitle}>בדיחה על כל נושא שתרצו</p>
       </header>
-      <TopicForm />
+      <JokeGenerator />
     </main>
   );
 }
