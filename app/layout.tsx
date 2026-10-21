@@ -19,11 +19,14 @@ const ui = Rubik({
 export const metadata: Metadata = {
   title: "מחולל בדיחות",
   description: "בדיחה על כל נושא שתרצו",
+  // Short name under the icon on the iPhone home screen.
+  appleWebApp: { capable: true, title: "בדיחות", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: "#FFD400",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

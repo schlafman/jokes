@@ -3,13 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import { MAX_TOPIC_LENGTH, clampTopic, countChars } from "@/lib/topic";
 import { ClipboardIcon, LaughingFace, RefreshIcon, WandIcon } from "./Decorations";
-import { requestJoke } from "./jokeClient";
+import { requestJoke, type ErrorKind } from "./jokeClient";
 import { jokeCardTopic } from "./jokeTitle";
 import { MESSAGES } from "./messages";
 import styles from "./page.module.css";
 
 type RequestStatus = "idle" | "loading" | "error";
-type ErrorKind = "refused" | "general";
+
+const ERROR_MESSAGES: Record<ErrorKind, string> = {
+  refused: MESSAGES.refused,
+  rateLimited: MESSAGES.rateLimited,
+  timeout: MESSAGES.timeoutError,
+  offline: MESSAGES.offlineError,
+  invalid: MESSAGES.invalidInput,
+  general: MESSAGES.generalError,
+};
 type CopyState = "idle" | "copied" | "failed";
 // The topic is the one the joke was created with (lastSuccessfulTopic).
 type DisplayedJoke = { text: string; topic: string };
@@ -122,12 +130,13 @@ export default function JokeGenerator() {
             <span>{MESSAGES.loading}</span>
           </div>
         )}
-        {requestStatus === "error" && (
-          <p className={styles.error} role="alert">
+        {requestStatus === "error" && errorKind !== null && (
+          // The rate-limit message uses the orange "limit" box from the Style Guide.
+          <p className={errorKind === "rateLimited" ? styles.limit : styles.error} role="alert">
             <span className={styles.errorIcon} aria-hidden="true">
               !
             </span>
-            {errorKind === "refused" ? MESSAGES.refused : MESSAGES.generalError}
+            {ERROR_MESSAGES[errorKind]}
           </p>
         )}
       </div>

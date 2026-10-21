@@ -1,4 +1,4 @@
-import { APIConnectionTimeoutError, AuthenticationError, PermissionDeniedError } from "openai";
+import { APIConnectionError, APIConnectionTimeoutError, APIError } from "openai";
 import { createJokeResponse } from "./openaiAdapter";
 
 export type JokeErrorCode =
@@ -35,12 +35,52 @@ function buildInput(topic: string, previousJoke: string | undefined): string {
   return parts.join("\n\n");
 }
 
-function mapError(error: unknown): JokeErrorCode {
-  if (error instanceof APIConnectionTimeoutError) return "AI_TIMEOUT";
-  if (error instanceof AuthenticationError || error instanceof PermissionDeniedError) {
-    return "SERVICE_UNAVAILABLE";
+// One automatic retry on a transient failure (ARCHITECTURE 2.5): at most two OpenAI calls per request.
+const MAX_ATTEMPTS = 2;
+
+type AttemptResult =
+  | { ok: true; joke: string }
+  | { ok: false; code: JokeErrorCode; retryable: boolean };
+
+function classifyError(error: unknown): { code: JokeErrorCode; retryable: boolean } {
+  if (error instanceof APIConnectionTimeoutError) return { code: "AI_TIMEOUT", retryable: true };
+  if (error instanceof APIConnectionError) return { code: "AI_UNAVAILABLE", retryable: true };
+  if (error instanceof APIError && typeof error.status === "number") {
+    // Out of budget, invalid key or missing permissions: retrying cannot help.
+    if (error.status === 429 && error.code === "insufficient_quota") {
+      return { code: "SERVICE_UNAVAILABLE", retryable: false };
+    }
+    if (error.status === 401 || error.status === 403) {
+      return { code: "SERVICE_UNAVAILABLE", retryable: false };
+    }
+    if (error.status === 429 || error.status >= 500) return { code: "AI_UNAVAILABLE", retryable: true };
+    return { code: "AI_UNAVAILABLE", retryable: false };
   }
-  return "AI_UNAVAILABLE";
+  return { code: "AI_UNAVAILABLE", retryable: true };
+}
+
+async function attempt(input: string, attemptNumber: number): Promise<AttemptResult> {
+  let result;
+  try {
+    result = await createJokeResponse({ instructions: INSTRUCTIONS, input });
+  } catch (error) {
+    const { code, retryable } = classifyError(error);
+    // Log only the error type and code; never the prompt, the joke or the key.
+    console.error(
+      `[jokes] OpenAI call ${attemptNumber} failed: ${code} (${(error as Error)?.constructor?.name})`,
+    );
+    return { ok: false, code, retryable };
+  }
+
+  const joke = result.text.trim();
+  if (result.refused || joke.includes(REFUSAL_MARKER)) {
+    return { ok: false, code: "TOPIC_REFUSED", retryable: false };
+  }
+  if (!joke || result.status === "incomplete") {
+    console.error(`[jokes] Unusable model response on call ${attemptNumber} (status: ${result.status})`);
+    return { ok: false, code: "AI_UNAVAILABLE", retryable: true };
+  }
+  return { ok: true, joke };
 }
 
 export async function generateJoke(request: {
@@ -52,26 +92,12 @@ export async function generateJoke(request: {
     return { ok: false, code: "SERVICE_UNAVAILABLE" };
   }
 
-  let result;
-  try {
-    result = await createJokeResponse({
-      instructions: INSTRUCTIONS,
-      input: buildInput(request.topic, request.previousJoke),
-    });
-  } catch (error) {
-    const code = mapError(error);
-    // Log only the error type and code; never the prompt, the joke or the key.
-    console.error(`[jokes] OpenAI call failed: ${code} (${(error as Error)?.constructor?.name})`);
-    return { ok: false, code };
+  const input = buildInput(request.topic, request.previousJoke);
+  let result = await attempt(input, 1);
+  for (let attemptNumber = 2; attemptNumber <= MAX_ATTEMPTS; attemptNumber++) {
+    if (result.ok || !result.retryable) break;
+    result = await attempt(input, attemptNumber);
   }
-
-  const joke = result.text.trim();
-  if (result.refused || joke.includes(REFUSAL_MARKER)) {
-    return { ok: false, code: "TOPIC_REFUSED" };
-  }
-  if (!joke || result.status === "incomplete") {
-    console.error(`[jokes] Unusable model response (status: ${result.status})`);
-    return { ok: false, code: "AI_UNAVAILABLE" };
-  }
-  return { ok: true, joke };
+  // The final code reflects the last failure (e.g. a second timeout returns AI_TIMEOUT).
+  return result.ok ? result : { ok: false, code: result.code };
 }

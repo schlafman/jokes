@@ -1,4 +1,11 @@
-import { APIConnectionTimeoutError, APIConnectionError } from "openai";
+import {
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  AuthenticationError,
+  BadRequestError,
+  InternalServerError,
+  RateLimitError,
+} from "openai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJokeResponse } from "@/lib/server/openaiAdapter";
 import { POST } from "@/app/api/jokes/route";
@@ -118,7 +125,10 @@ describe("successful generation", () => {
   });
 });
 
-describe("failures (exactly one OpenAI call, no retry in this milestone)", () => {
+const GOOD = { status: "completed", text: "a joke", refused: false };
+const headers = new Headers();
+
+describe("failures without retry (exactly one OpenAI call)", () => {
   it("maps the refusal marker to 422 TOPIC_REFUSED", async () => {
     modelReturns("[[REFUSED]]");
     await expectError(await POST(jsonRequest({ topic: "x" })), 422, "TOPIC_REFUSED");
@@ -131,28 +141,20 @@ describe("failures (exactly one OpenAI call, no retry in this milestone)", () =>
     expect(adapter).toHaveBeenCalledTimes(1);
   });
 
-  it("maps a generic error to 502 AI_UNAVAILABLE", async () => {
-    adapter.mockRejectedValue(new APIConnectionError({ message: "secret internal detail" }));
-    const response = await POST(jsonRequest({ topic: "x" }));
-    expect(await response.clone().text()).not.toContain("secret internal detail");
-    await expectError(response, 502, "AI_UNAVAILABLE");
+  it("does not retry an authentication error (503)", async () => {
+    adapter.mockRejectedValue(new AuthenticationError(401, {}, "bad key", headers));
+    await expectError(await POST(jsonRequest({ topic: "x" })), 503, "SERVICE_UNAVAILABLE");
     expect(adapter).toHaveBeenCalledTimes(1);
   });
 
-  it("maps a timeout to 504 AI_TIMEOUT", async () => {
-    adapter.mockRejectedValue(new APIConnectionTimeoutError());
-    await expectError(await POST(jsonRequest({ topic: "x" })), 504, "AI_TIMEOUT");
+  it("does not retry an exhausted OpenAI budget (503)", async () => {
+    adapter.mockRejectedValue(new RateLimitError(429, { code: "insufficient_quota" }, "quota", headers));
+    await expectError(await POST(jsonRequest({ topic: "x" })), 503, "SERVICE_UNAVAILABLE");
     expect(adapter).toHaveBeenCalledTimes(1);
   });
 
-  it("maps an empty response to 502", async () => {
-    modelReturns("   ");
-    await expectError(await POST(jsonRequest({ topic: "x" })), 502, "AI_UNAVAILABLE");
-    expect(adapter).toHaveBeenCalledTimes(1);
-  });
-
-  it("maps an incomplete response to 502", async () => {
-    modelReturns("half a jo", { status: "incomplete" });
+  it("does not retry a bad request (502)", async () => {
+    adapter.mockRejectedValue(new BadRequestError(400, {}, "bad", headers));
     await expectError(await POST(jsonRequest({ topic: "x" })), 502, "AI_UNAVAILABLE");
     expect(adapter).toHaveBeenCalledTimes(1);
   });
@@ -161,5 +163,70 @@ describe("failures (exactly one OpenAI call, no retry in this milestone)", () =>
     vi.stubEnv("OPENAI_API_KEY", "");
     await expectError(await POST(jsonRequest({ topic: "x" })), 503, "SERVICE_UNAVAILABLE");
     expect(adapter).not.toHaveBeenCalled();
+  });
+});
+
+describe("transient failures (one automatic retry, never more than two calls)", () => {
+  it("maps a repeated network error to 502 without leaking details", async () => {
+    adapter.mockRejectedValue(new APIConnectionError({ message: "secret internal detail" }));
+    const response = await POST(jsonRequest({ topic: "x" }));
+    expect(await response.clone().text()).not.toContain("secret internal detail");
+    await expectError(response, 502, "AI_UNAVAILABLE");
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps a repeated timeout to 504 AI_TIMEOUT", async () => {
+    adapter.mockRejectedValue(new APIConnectionTimeoutError({ message: "secret internal detail" }));
+    const response = await POST(jsonRequest({ topic: "x" }));
+    expect(await response.clone().text()).not.toContain("secret internal detail");
+    await expectError(response, 504, "AI_TIMEOUT");
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the last failure for the final code (network error, then timeout → 504)", async () => {
+    adapter
+      .mockRejectedValueOnce(new APIConnectionError({ message: "x" }))
+      .mockRejectedValueOnce(new APIConnectionTimeoutError());
+    await expectError(await POST(jsonRequest({ topic: "x" })), 504, "AI_TIMEOUT");
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps a repeated empty response to 502", async () => {
+    modelReturns("   ");
+    await expectError(await POST(jsonRequest({ topic: "x" })), 502, "AI_UNAVAILABLE");
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps a repeated incomplete response to 502", async () => {
+    modelReturns("half a jo", { status: "incomplete" });
+    await expectError(await POST(jsonRequest({ topic: "x" })), 502, "AI_UNAVAILABLE");
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["network error", () => new APIConnectionError({ message: "x" })],
+    ["timeout", () => new APIConnectionTimeoutError()],
+    ["OpenAI 5xx", () => new InternalServerError(500, {}, "x", headers)],
+    ["OpenAI 429", () => new RateLimitError(429, { code: "rate_limit_exceeded" }, "x", headers)],
+  ])("retries once after a %s and returns the second result", async (_name, makeError) => {
+    adapter.mockRejectedValueOnce(makeError()).mockResolvedValueOnce(GOOD);
+    const response = await POST(jsonRequest({ topic: "x" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ joke: "a joke" });
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries once after an empty response", async () => {
+    adapter.mockResolvedValueOnce({ status: "completed", text: "", refused: false }).mockResolvedValueOnce(GOOD);
+    expect((await POST(jsonRequest({ topic: "x" }))).status).toBe(200);
+    expect(adapter).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a refusal on the second attempt", async () => {
+    adapter
+      .mockRejectedValueOnce(new APIConnectionError({ message: "x" }))
+      .mockResolvedValueOnce({ status: "completed", text: "[[REFUSED]]", refused: false });
+    await expectError(await POST(jsonRequest({ topic: "x" })), 422, "TOPIC_REFUSED");
+    expect(adapter).toHaveBeenCalledTimes(2);
   });
 });
