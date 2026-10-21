@@ -1,5 +1,20 @@
 import type { Metadata, Viewport } from "next";
+import { Fredoka, Rubik } from "next/font/google";
 import "./globals.css";
+
+const display = Fredoka({
+  subsets: ["hebrew", "latin"],
+  weight: ["700"],
+  display: "swap",
+  variable: "--font-display",
+});
+
+const ui = Rubik({
+  subsets: ["hebrew", "latin"],
+  weight: ["400", "500", "700"],
+  display: "swap",
+  variable: "--font-ui",
+});
 
 export const metadata: Metadata = {
   title: "מחולל בדיחות",
@@ -13,7 +28,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="he" dir="rtl">
+    <html lang="he" dir="rtl" className={`${display.variable} ${ui.variable}`}>
       <body>{children}</body>
     </html>
   );

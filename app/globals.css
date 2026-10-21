@@ -1,3 +1,15 @@
+:root {
+  --yellow: #ffd400;
+  --lime: #a7d800;
+  --sky: #18bff2;
+  --pink: #ff5bcb;
+  --royal: #4a73e8;
+  --orange: #ff9a1f;
+  --red: #ff4b39;
+  --black: #111111;
+  --white: #ffffff;
+}
+
 *,
 *::before,
 *::after {
@@ -12,8 +24,24 @@ body {
 }
 
 body {
-  font-family: Rubik, Assistant, Heebo, Arial, sans-serif;
-  color: #111111;
-  background: #ffffff;
+  font-family: var(--font-ui), Rubik, Assistant, Heebo, Arial, sans-serif;
+  color: var(--black);
   line-height: 1.5;
+  min-height: 100vh;
+  /* Pop Art backdrop: halftone dots over diagonal color bands */
+  background:
+    radial-gradient(rgba(17, 17, 17, 0.12) 1.5px, transparent 1.6px) 0 0 / 14px 14px,
+    linear-gradient(
+      160deg,
+      var(--sky) 0 22%,
+      var(--yellow) 22% 34%,
+      var(--pink) 34% 44%,
+      var(--sky) 44% 100%
+    );
+  background-attachment: fixed;
+}
+
+:focus-visible {
+  outline: 3px solid var(--royal);
+  outline-offset: 3px;
 }
