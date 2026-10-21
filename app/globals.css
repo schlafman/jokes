@@ -1,0 +1,19 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: Rubik, Assistant, Heebo, Arial, sans-serif;
+  color: #111111;
+  background: #ffffff;
+  line-height: 1.5;
+}

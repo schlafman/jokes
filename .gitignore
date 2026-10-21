@@ -8,3 +8,8 @@ build/
 Thumbs.db
 .vscode/
 .idea/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.claude/

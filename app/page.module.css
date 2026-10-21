@@ -1,0 +1,76 @@
+.main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 48px 20px 32px;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.title {
+  font-size: 40px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.subtitle {
+  font-size: 18px;
+  margin: 0;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.input {
+  width: 100%;
+  font: inherit;
+  font-size: 18px;
+  padding: 14px 16px;
+  border: 1px solid #888888;
+  border-radius: 12px;
+  background: #ffffff;
+  text-align: right;
+}
+
+.counter {
+  align-self: flex-end;
+  font-size: 13px;
+  color: #666666;
+  margin-top: 6px;
+}
+
+.primaryButton {
+  width: 100%;
+  margin-top: 20px;
+  font: inherit;
+  font-size: 19px;
+  font-weight: 700;
+  padding: 16px;
+  border: none;
+  border-radius: 12px;
+  background: #444444;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.notice {
+  font-size: 14px;
+  color: #666666;
+  text-align: center;
+  margin: 10px 0 0;
+}
